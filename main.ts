@@ -1,5 +1,4 @@
 const BPS_BASE = "https://webapi.bps.go.id";
-const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
 
 Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
@@ -13,12 +12,24 @@ Deno.serve(async (req: Request) => {
   // Proxy /v1/* to BPS API
   if (url.pathname.startsWith("/v1/")) {
     const target = `${BPS_BASE}${url.pathname}${url.search}`;
+
+    // Forward the request with browser-like headers
     const res = await fetch(target, {
+      method: req.method,
       headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/json",
+        "Accept": "application/json",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
       },
+      redirect: "follow",
     });
+
     return new Response(res.body, {
       status: res.status,
       headers: {
