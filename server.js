@@ -10,7 +10,7 @@ const CURL_BIN = process.env.CURL_BIN || "curl_chrome110";
  */
 function curlFetch(url) {
   return new Promise((resolve, reject) => {
-    execFile(CURL_BIN, ["-s", "-L", url], { timeout: 30000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout) => {
+    execFile(CURL_BIN, ["-s", url], { timeout: 30000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout);
     });
