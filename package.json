@@ -1,0 +1,10 @@
+{
+  "name": "bps-api-proxy",
+  "version": "1.0.0",
+  "description": "Proxy for BPS API that bypasses Cloudflare bot detection using curl-impersonate",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}
