@@ -7,13 +7,30 @@ const CURL_BIN = process.env.CURL_BIN || "curl_chrome110";
 
 /**
  * Fetch URL using curl-impersonate (Chrome TLS fingerprint).
+ * Returns both the response body and the HTTP status code.
  */
 function curlFetch(url) {
   return new Promise((resolve, reject) => {
-    execFile(CURL_BIN, ["-s", url], { timeout: 30000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
-    });
+    const marker = "\n---BPS-STATUS---";
+    execFile(
+      CURL_BIN,
+      ["-s", "-w", `${marker}%{http_code}`, url],
+      { timeout: 30000, maxBuffer: 2 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        const idx = stdout.lastIndexOf(marker);
+        if (idx === -1) {
+          reject(new Error("Invalid proxy response format: status code marker missing"));
+          return;
+        }
+        const body = stdout.substring(0, idx);
+        const statusCode = parseInt(stdout.substring(idx + marker.length), 10);
+        resolve({ body, statusCode });
+      }
+    );
   });
 }
 
@@ -49,8 +66,29 @@ const server = http.createServer(async (req, res) => {
   // BPS WebAPI: /v1/*
   if (req.url.startsWith("/v1/")) {
     try {
-      const body = await curlFetch(`https://webapi.bps.go.id${req.url}`);
-      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      const { body, statusCode } = await curlFetch(`https://webapi.bps.go.id${req.url}`);
+      
+      let isJson = true;
+      try {
+        JSON.parse(body);
+      } catch (e) {
+        isJson = false;
+      }
+
+      if (!isJson) {
+        // If not valid JSON, it's highly likely a Cloudflare challenge page or upstream HTML error.
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: "Invalid JSON response from upstream. Cloudflare block or gateway error suspected.",
+            statusCode,
+            preview: body.substring(0, 500),
+          })
+        );
+        return;
+      }
+
+      res.writeHead(statusCode, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       res.end(body);
     } catch (e) {
       res.writeHead(502, { "Content-Type": "application/json" });
@@ -64,10 +102,30 @@ const server = http.createServer(async (req, res) => {
     const path = req.url.replace("/allstats/", "");
     const targetUrl = `https://searchengine.web.bps.go.id/${path}`;
     try {
-      const body = FLARESOLVERR_URL
-        ? await flareSolverrFetch(targetUrl)
-        : await curlFetch(targetUrl);
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+      let body;
+      let statusCode = 200;
+      if (FLARESOLVERR_URL) {
+        body = await flareSolverrFetch(targetUrl);
+      } else {
+        const result = await curlFetch(targetUrl);
+        body = result.body;
+        statusCode = result.statusCode;
+      }
+
+      // Check if Cloudflare block page is returned in the HTML response
+      if (body.includes("cloudflare") || body.includes("Just a moment")) {
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: "Cloudflare block or challenge page detected on AllStats.",
+            statusCode,
+            preview: body.substring(0, 500),
+          })
+        );
+        return;
+      }
+
+      res.writeHead(statusCode, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" });
       res.end(body);
     } catch (e) {
       res.writeHead(502, { "Content-Type": "application/json" });
